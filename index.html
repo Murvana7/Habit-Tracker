@@ -3,32 +3,8 @@
 <head>
 <meta charset="utf-8"/>
 <meta name="viewport" content="width=device-width,initial-scale=1"/>
-  <link rel="icon" type="image/svg+xml"
-  href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='16' fill='%23030712'/%3E%3Ccircle cx='32' cy='32' r='18' fill='none' stroke='%2338bdf8' stroke-width='4' opacity='.6'/%3E%3Cpath d='M22 32l7 7 13-15' fill='none' stroke='%2322c55e' stroke-width='5' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E">
+<link rel="stylesheet" href="style.css">
 <title>Habit Tracker</title>
-<style>
-  :root{--bg:#0b1220;--panel:rgba(255,255,255,.06);--border:rgba(255,255,255,.12);--text:#eaf0ff;--muted:rgba(234,240,255,.72);--acc:#38bdf8;--r:16px}
-  *{box-sizing:border-box} body{margin:0;font-family:system-ui,Segoe UI,Roboto,Arial;background:radial-gradient(1200px 600px at 20% -10%, rgba(56,189,248,.25), transparent 60%), var(--bg);color:var(--text)}
-  .wrap{max-width:980px;margin:32px auto;padding:0 16px}
-  header{display:flex;gap:12px;align-items:flex-end;justify-content:space-between;margin-bottom:16px}
-  h1{margin:0;font-size:28px} .sub{color:var(--muted);margin:6px 0 0}
-  .grid{display:grid;grid-template-columns:1fr 1fr;gap:14px}
-  @media(max-width:860px){.grid{grid-template-columns:1fr}}
-  .card{background:var(--panel);border:1px solid var(--border);border-radius:var(--r);padding:14px}
-  .row{display:flex;gap:10px;flex-wrap:wrap;align-items:center}
-  input,button{border-radius:12px;border:1px solid var(--border);background:rgba(255,255,255,.04);color:var(--text);padding:10px 12px;outline:none}
-  input{flex:1;min-width:200px}
-  button{cursor:pointer} button.primary{background:linear-gradient(90deg, rgba(56,189,248,.9), rgba(96,165,250,.9));border:none}
-  button:active{transform:translateY(1px)}
-  .list{display:flex;flex-direction:column;gap:10px;margin-top:12px}
-  .habit{display:flex;justify-content:space-between;gap:10px;align-items:center;padding:12px;border-radius:14px;border:1px solid var(--border);background:rgba(0,0,0,.18)}
-  .name{font-weight:650}
-  .meta{color:var(--muted);font-size:13px}
-  .pill{font-size:12px;padding:6px 10px;border-radius:999px;border:1px solid var(--border);color:var(--muted)}
-  .right{display:flex;gap:8px;align-items:center}
-  .tiny{padding:8px 10px}
-  .ok{border-color:rgba(56,189,248,.5)}
-</style>
 </head>
 <body>
 <div class="wrap">
@@ -37,7 +13,12 @@
       <h1>Habit Tracker</h1>
       <div class="sub">Daily check-ins • streaks • saved locally</div>
     </div>
-    <div class="pill" id="today"></div>
+    <div class="row" style="justify-content:flex-end;flex:1">
+      <div class="pill" id="today"></div>
+      <div class="ring" id="ring" title="Checked today">
+        <span id="ringText">0%</span>
+      </div>
+    </div>
   </header>
 
   <div class="grid">
@@ -46,6 +27,21 @@
         <input id="habitName" placeholder="Add a habit (e.g., Read 20 mins)"/>
         <button class="primary" id="addBtn">Add</button>
       </div>
+
+      <div class="row" style="margin-top:10px">
+        <select id="sortSel" title="Sort">
+          <option value="created">Sort: newest</option>
+          <option value="name">Sort: name</option>
+          <option value="streak">Sort: streak</option>
+          <option value="last">Sort: last check</option>
+          <option value="today">Sort: checked today</option>
+        </select>
+
+        <button class="tiny" id="exportBtn" title="Download CSV backup">Export CSV</button>
+        <button class="tiny" id="importBtn" title="Import CSV backup">Import CSV</button>
+        <input id="file" type="file" accept=".csv" hidden />
+      </div>
+
       <div class="list" id="list"></div>
     </section>
 
@@ -56,110 +52,25 @@
         <div class="pill" id="donePill"></div>
         <div class="pill" id="bestPill"></div>
       </div>
-      <p class="sub" style="margin-top:12px">
+
+      <div class="divider"></div>
+
+      <p class="sub" style="margin:0">
         Tip: streak increases only if you check-in once per day. Miss a day and streak resets.
+      </p>
+      <p class="sub" style="margin:10px 0 0">
+        Final-boss extras: edit names, undo delete, CSV backup, and auto day rollover.
       </p>
     </section>
   </div>
 </div>
 
-<script>
-const $ = s => document.querySelector(s);
-const KEY="habits_v1";
-const today = new Date();
-const todayKey = today.toISOString().slice(0,10);
-$("#today").textContent = "Today: " + todayKey;
+<div class="snack" id="snack" role="status" aria-live="polite">
+  <div class="muted" id="snackMsg"></div>
+  <button class="tiny primary" id="undoBtn">Undo</button>
+  <button class="tiny" id="closeSnack">Close</button>
+</div>
 
-let habits = JSON.parse(localStorage.getItem(KEY) || "[]");
-
-function save(){ localStorage.setItem(KEY, JSON.stringify(habits)); }
-function daysBetween(a,b){
-  const A=new Date(a), B=new Date(b);
-  return Math.round((B-A)/(1000*60*60*24));
-}
-function render(){
-  const list=$("#list");
-  list.innerHTML="";
-  let done=0, best=0;
-
-  habits.forEach(h=>{
-    best=Math.max(best, h.best||0);
-
-    const checkedToday = h.lastCheck === todayKey;
-    if(checkedToday) done++;
-
-    const el=document.createElement("div");
-    el.className="habit " + (checkedToday ? "ok" : "");
-    el.innerHTML = `
-      <div>
-        <div class="name">${escapeHtml(h.name)}</div>
-        <div class="meta">Streak: <b>${h.streak}</b> • Best: <b>${h.best||0}</b> • Last: ${h.lastCheck||"—"}</div>
-      </div>
-      <div class="right">
-        <button class="tiny ${checkedToday ? "" : "primary"}" data-act="check">Check-in</button>
-        <button class="tiny" data-act="reset">Reset</button>
-        <button class="tiny" data-act="del">Delete</button>
-      </div>
-    `;
-    el.querySelectorAll("button").forEach(btn=>{
-      btn.onclick=()=>{
-        const act=btn.dataset.act;
-        if(act==="check") checkIn(h.id);
-        if(act==="reset") resetHabit(h.id);
-        if(act==="del") delHabit(h.id);
-      };
-    });
-    list.appendChild(el);
-  });
-
-  $("#totalPill").textContent = "Habits: " + habits.length;
-  $("#donePill").textContent = "Checked today: " + done;
-  $("#bestPill").textContent = "Best streak: " + (habits.length? Math.max(...habits.map(x=>x.best||0)) : 0);
-}
-
-function addHabit(){
-  const name=$("#habitName").value.trim();
-  if(!name) return;
-  habits.unshift({id:crypto.randomUUID(), name, streak:0, best:0, lastCheck:null});
-  $("#habitName").value="";
-  save(); render();
-}
-function checkIn(id){
-  const h=habits.find(x=>x.id===id);
-  if(!h) return;
-
-  if(h.lastCheck === todayKey) return; // already checked today
-
-  if(!h.lastCheck){
-    h.streak = 1;
-  }else{
-    const gap = daysBetween(h.lastCheck, todayKey);
-    h.streak = (gap===1) ? (h.streak+1) : 1;
-  }
-  h.best = Math.max(h.best||0, h.streak);
-  h.lastCheck = todayKey;
-
-  save(); render();
-}
-function resetHabit(id){
-  const h=habits.find(x=>x.id===id);
-  if(!h) return;
-  h.streak=0; h.lastCheck=null;
-  save(); render();
-}
-function delHabit(id){
-  habits = habits.filter(x=>x.id!==id);
-  save(); render();
-}
-function escapeHtml(s){
-  return s.replace(/[&<>"']/g, m => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m]));
-}
-
-$("#addBtn").onclick=addHabit;
-$("#habitName").addEventListener("keydown", e=>{ if(e.key==="Enter") addHabit(); });
-
-render();
-</script>
+  <script src="index.js"></script>
 </body>
 </html>
-
